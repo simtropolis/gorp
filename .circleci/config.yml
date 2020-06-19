@@ -1,0 +1,48 @@
+version: 2.1
+
+executors:
+  ubuntu:
+    working_directory: ~/mattermost/
+    resource_class: xlarge
+    machine:
+      image: "ubuntu-1604:201903-01"
+    environment:
+      COMPOSE_PROJECT_NAME: "circleci"
+
+jobs:
+  setup:
+    working_directory: ~/mattermost/gorp
+    docker:
+      - image: circleci/golang:1.13.12
+      - image: circleci/postgres:9.4.26-ram
+        environment:
+          POSTGRES_DB: gorptest
+          POSTGRES_USER: gorptest
+          POSTGRES_PASSWORD: gorptest
+      - image: circleci/mysql:5.7.30-ram
+        environment:
+          MYSQL_DATABASE: gorptest
+          MYSQL_USER: gorptest
+          MYSQL_PASSWORD: gorptest
+    steps:
+      - checkout
+  test:
+    executor:
+      name: ubuntu
+    parameters:
+      dbdriver:
+        type: string
+      dbsource:
+        type: string
+    steps:
+      - run:
+          name: Run Tests
+          command: |
+            ./test_all.sh
+          no_output_timeout: 10m
+workflows:
+  version: 2
+  untagged-build:
+    jobs:
+      - test:
+          name: test
