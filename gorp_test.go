@@ -2115,6 +2115,7 @@ func TestQuoteTableNames(t *testing.T) {
 }
 
 func TestSelectTooManyCols(t *testing.T) {
+	t.Skip("We are not returning non-fatal errors since https://github.com/mattermost/gorp/commit/264455541e08d3b5ec89f605e9695823d5bec606")
 	dbmap := initDbMap()
 	defer dropAndClose(dbmap)
 
