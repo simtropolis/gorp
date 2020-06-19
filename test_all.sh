@@ -6,26 +6,26 @@
 coveralls_testflags="-covermode=count -coverprofile=coverage.out"
 
 echo "Running unit tests"
-go test -race
+ginkgo -r -race -randomizeAllSpecs -keepGoing -- -test.run TestGorp
 
 echo "Testing against mymysql"
 export GORP_TEST_DSN="tcp:localhost:3306*gorptest/gorptest/gorptest"
-export GORP_TEST_DIALECT=mysql
-go test $coveralls_testflags $GOBUILDFLAG -test.run=$@ .
+export GORP_TEST_DIALECT="mysql"
+go test $coveralls_testflags $GOBUILDFLAG $@ .
 
 echo "Testing against gomysql"
 export GORP_TEST_DSN="gorptest:gorptest@tcp(localhost:3306)/gorptest"
-export GORP_TEST_DIALECT=gomysql
+export GORP_TEST_DIALECT="gomysql"
 go test $coveralls_testflags $GOBUILDFLAG $@ .
 
 echo "Testing against postgres"
 export GORP_TEST_DSN="host=localhost user=gorptest password=gorptest dbname=gorptest sslmode=disable"
-export GORP_TEST_DIALECT=postgres
+export GORP_TEST_DIALECT="postgres"
 go test $coveralls_testflags $GOBUILDFLAG $@ .
 
 echo "Testing against sqlite"
-export GORP_TEST_DSN=/tmp/gorptest.bin
-export GORP_TEST_DIALECT=sqlite
+export GORP_TEST_DSN="/tmp/gorptest.bin"
+export GORP_TEST_DIALECT="sqlite"
 go test $coveralls_testflags $GOBUILDFLAG $@ .
 rm -f /tmp/gorptest.bin
 
