@@ -838,9 +838,10 @@ func TestSetUniqueTogether(t *testing.T) {
 
 func TestSetUniqueTogetherIdempotent(t *testing.T) {
 	dbmap := newDbMap()
-	table := dbmap.AddTable(UniqueColumns{}).SetUniqueTogether("FirstName", "LastName")
+	table := dbmap.AddTableWithName(UniqueColumns{}, "test_table")
 	table.ColMap("FirstName").SetMaxSize(255)
 	table.ColMap("LastName").SetMaxSize(255)
+	table.SetUniqueTogether("FirstName", "LastName")
 	table.SetUniqueTogether("FirstName", "LastName")
 	err := dbmap.CreateTablesIfNotExists()
 	if err != nil {
@@ -1961,8 +1962,6 @@ func TestNullTime(t *testing.T) {
 	if ent.Time.Time.UTC() != ts.UTC() {
 		t.Errorf("expect %v but got %v.", ts, ent.Time.Time)
 	}
-
-	return
 }
 
 type WithTime struct {
