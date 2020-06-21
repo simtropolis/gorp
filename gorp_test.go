@@ -102,9 +102,14 @@ func (me *InvoiceTag) Rand() {
 
 // See: https://github.com/go-gorp/gorp/issues/175
 type AliasTransientField struct {
-	Id     int64  `db:"id"`
-	Bar    int64  `db:"-"`
-	BarStr string `db:"bar"`
+	Id  int64 `db:"id"`
+	Bar int64 `db:"-"`
+	// In MM hyphen tags are not discarded so we are not able
+	// to have one column with a name and another field aliasing
+	// using the same column name than before. Eg.
+	// Bar    int64  `db:"-"`
+	// BarStr string `db:"bar"`
+	BarStr string `db:"strbar"`
 }
 
 func (me *AliasTransientField) GetId() int64 { return me.Id }
@@ -1526,18 +1531,18 @@ func TestCrud(t *testing.T) {
 func testCrudInternal(t *testing.T, dbmap *gorp.DbMap, val testable) {
 	table, err := dbmap.TableFor(reflect.TypeOf(val).Elem(), false)
 	if err != nil {
-		t.Errorf("couldn't call TableFor: val=%v err=%v", val, err)
+		t.Errorf("couldn't call TableFor: val=%v err=%v table=%s", val, err, table.TableName)
 	}
 
 	_, err = dbmap.Exec("delete from " + table.TableName)
 	if err != nil {
-		t.Errorf("couldn't delete rows from: val=%v err=%v", val, err)
+		t.Errorf("couldn't delete rows from: val=%v err=%v table=%s", val, err, table.TableName)
 	}
 
 	// INSERT row
 	_insert(dbmap, val)
 	if val.GetId() == 0 {
-		t.Errorf("val.GetId() was not set on INSERT")
+		t.Errorf("val.GetId() was not set on INSERT for table %s", table.TableName)
 		return
 	}
 
@@ -1551,7 +1556,7 @@ func testCrudInternal(t *testing.T, dbmap *gorp.DbMap, val testable) {
 	val.Rand()
 	count := _update(dbmap, val)
 	if count != 1 {
-		t.Errorf("update 1 != %d", count)
+		t.Errorf("update 1 != %d on table %s", count, table.TableName)
 	}
 	val2 = _get(dbmap, val, val.GetId())
 	if !reflect.DeepEqual(val, val2) {
@@ -1565,20 +1570,20 @@ func testCrudInternal(t *testing.T, dbmap *gorp.DbMap, val testable) {
 	} else if len(rows) != 1 {
 		t.Errorf("unexpected row count in %s: %d", dbmap.Dialect.QuoteField(table.TableName), len(rows))
 	} else if !reflect.DeepEqual(val, rows[0]) {
-		t.Errorf("select * result: %v != %v", val, rows[0])
+		t.Errorf("select * from %s result: %v != %v", table.TableName, val, rows[0])
 	}
 
 	// DELETE row
 	deleted := _del(dbmap, val)
 	if deleted != 1 {
-		t.Errorf("Did not delete row with Id: %d", val.GetId())
+		t.Errorf("Did not delete row with Id: %d for table %s", val.GetId(), table.TableName)
 		return
 	}
 
 	// VERIFY deleted
 	val2 = _get(dbmap, val, val.GetId())
 	if val2 != nil {
-		t.Errorf("Found invoice with id: %d after Delete()", val.GetId())
+		t.Errorf("Found invoice with id: %d after Delete() for table %s", val.GetId(), table.TableName)
 	}
 }
 
