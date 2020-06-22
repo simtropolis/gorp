@@ -45,11 +45,15 @@ var (
 		gorp.OracleDialect{},
 	}
 
-	debug bool
+	debug   bool
+	dsn     string
+	dialect string
 )
 
 func TestMain(m *testing.M) {
-	flag.BoolVar(&debug, "trace", true, "Turn on or off database tracing (DbMap.TraceOn)")
+	flag.BoolVar(&debug, "trace", false, "Turn on or off database tracing (DbMap.TraceOn)")
+	flag.StringVar(&dsn, "dsn", "gorptest:gorptest@tcp(localhost:3306)/gorptest", "Database DSN to test")
+	flag.StringVar(&dialect, "dialect", "gomysql", "Database Dialect to test")
 	flag.Parse()
 	os.Exit(m.Run())
 }
@@ -2306,7 +2310,7 @@ func TestSelectAlias(t *testing.T) {
 func TestMysqlPanicIfDialectNotInitialized(t *testing.T) {
 	_, driver := dialectAndDriver()
 	// this test only applies to MySQL
-	if os.Getenv("GORP_TEST_DIALECT") != "mysql" {
+	if dialect != "mysql" {
 		return
 	}
 
@@ -2464,7 +2468,7 @@ func BenchmarkNativeCrud(b *testing.B) {
 	b.StartTimer()
 
 	var insert, sel, update, delete string
-	if os.Getenv("GORP_TEST_DIALECT") != "postgres" {
+	if dialect != "postgres" {
 		insert = "insert into invoice_test (" + columnCreated + ", " + columnUpdated + ", " + columnMemo + ", " + columnPersonId + ") values (?, ?, ?, ?)"
 		sel = "select " + columnId + ", " + columnCreated + ", " + columnUpdated + ", " + columnMemo + ", " + columnPersonId + " from invoice_test where " + columnId + "=?"
 		update = "update invoice_test set " + columnCreated + "=?, " + columnUpdated + "=?, " + columnMemo + "=?, " + columnPersonId + "=? where " + columnId + "=?"
@@ -2639,11 +2643,6 @@ func dropAndClose(dbmap *gorp.DbMap) {
 }
 
 func connect(driver string) *sql.DB {
-	dsn := os.Getenv("GORP_TEST_DSN")
-	if dsn == "" {
-		panic("GORP_TEST_DSN env variable is not set. Please see README.md")
-	}
-
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		panic("Error connecting to db: " + err.Error())
@@ -2652,7 +2651,7 @@ func connect(driver string) *sql.DB {
 }
 
 func dialectAndDriver() (gorp.Dialect, string) {
-	switch os.Getenv("GORP_TEST_DIALECT") {
+	switch dialect {
 	case "mysql":
 		return gorp.MySQLDialect{"InnoDB", "UTF8"}, "mymysql"
 	case "gomysql":
@@ -2661,8 +2660,9 @@ func dialectAndDriver() (gorp.Dialect, string) {
 		return gorp.PostgresDialect{}, "postgres"
 	case "sqlite":
 		return gorp.SqliteDialect{}, "sqlite3"
+	default:
+		panic("Dialect variable  is not set or is invalid. Please see README.md")
 	}
-	panic("GORP_TEST_DIALECT env variable is not set or is invalid. Please see README.md")
 }
 
 func _insert(dbmap *gorp.DbMap, list ...interface{}) {

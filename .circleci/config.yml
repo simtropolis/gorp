@@ -19,7 +19,7 @@ jobs:
           name: Run Tests
           command: |
             go get -u github.com/onsi/ginkgo/ginkgo
-            ./test_all.sh
+            make test-all
           no_output_timeout: 10m
 workflows:
   version: 2.1
