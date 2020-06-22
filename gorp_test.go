@@ -2424,7 +2424,7 @@ func TestHyphenColumns(t *testing.T) {
 
 	returnedData := &HyphenatedTable{}
 	rows, err := dbmap.Select(returnedData,
-		"SELECT Id, Description, CHAR_LENGTH(Description) as Bar, TRUE as Tar FROM "+tableName(dbmap, HyphenatedTable{}))
+		"SELECT Id, Description, 12345 as Bar, TRUE as Tar FROM "+tableName(dbmap, HyphenatedTable{}))
 	if err != nil {
 		t.Error(err)
 	}
@@ -2432,7 +2432,7 @@ func TestHyphenColumns(t *testing.T) {
 		t.Error("Number of rows should be 1")
 	}
 	data = rows[0].(*HyphenatedTable)
-	if data.Bar != 11 || !data.Tar {
+	if data.Foo != "" || data.Bar != 12345 || !data.Tar {
 		t.Errorf("Hyphenated values are not being stored: %v", data)
 	}
 
