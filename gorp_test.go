@@ -117,6 +117,14 @@ func (me *AliasTransientField) Rand() {
 	me.BarStr = fmt.Sprintf("random %d", rand.Int63())
 }
 
+type HyphenatedTable struct {
+	Id          int64
+	Description string
+	Foo         string `db:"-"`
+	Bar         int64  `db:"-"`
+	Tar         bool   `db:"-"`
+}
+
 type OverriddenInvoice struct {
 	Invoice
 	Id string
@@ -2407,6 +2415,43 @@ func TestPrepare(t *testing.T) {
 	}
 }
 
+func TestHyphenColumns(t *testing.T) {
+	dbmap := initDbMap()
+	defer dropAndClose(dbmap)
+
+	data := &HyphenatedTable{Description: "Description"}
+	_insert(dbmap, data)
+
+	returnedData := &HyphenatedTable{}
+	rows, err := dbmap.Select(returnedData,
+		"SELECT Id, Description, CHAR_LENGTH(Description) as Bar, TRUE as Tar FROM "+tableName(dbmap, HyphenatedTable{}))
+	if err != nil {
+		t.Error(err)
+	}
+	if len(rows) == 0 {
+		t.Error("Number of rows should be 1")
+	}
+	data = rows[0].(*HyphenatedTable)
+	if data.Bar != 11 || !data.Tar {
+		t.Errorf("Hyphenated values are not being stored: %v", data)
+	}
+
+	data = &HyphenatedTable{Description: "Description", Foo: "Shouldn't be inserted", Bar: 1234, Tar: true}
+	_update(dbmap, data)
+	rows, err = dbmap.Select(returnedData,
+		"SELECT * FROM "+tableName(dbmap, HyphenatedTable{}))
+	if err != nil {
+		t.Error(err)
+	}
+	if len(rows) == 0 {
+		t.Error("Number of rows should be 1")
+	}
+	data = rows[0].(*HyphenatedTable)
+	if data.Foo != "" || data.Bar != 0 || data.Tar {
+		t.Errorf("Shouldn't be able to store hyphen column data: %v", data)
+	}
+}
+
 func BenchmarkNativeCrud(b *testing.B) {
 	b.StopTimer()
 	dbmap := initDbMapBench()
@@ -2528,6 +2573,7 @@ func initDbMap() *gorp.DbMap {
 	dbmap.AddTableWithName(Invoice{}, "invoice_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(InvoiceTag{}, "invoice_tag_test") //key is set via primarykey attribute
 	dbmap.AddTableWithName(AliasTransientField{}, "alias_trans_field_test").SetKeys(true, "id")
+	dbmap.AddTableWithName(HyphenatedTable{}, "hyphenated_table").SetKeys(true, "Id")
 	table := dbmap.AddTableWithName(OverriddenInvoice{}, "invoice_override_test").SetKeys(false, "Id")
 	table.ColMap("Id").SetMaxSize(255)
 	table.SetKeys(false, "Id")
