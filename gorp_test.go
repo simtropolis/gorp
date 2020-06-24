@@ -45,12 +45,17 @@ var (
 		gorp.OracleDialect{},
 	}
 
-	debug bool
+	debug   bool
+	dsn     string
+	dialect string
 )
 
-func init() {
-	flag.BoolVar(&debug, "trace", true, "Turn on or off database tracing (DbMap.TraceOn)")
+func TestMain(m *testing.M) {
+	flag.BoolVar(&debug, "trace", false, "Turn on or off database tracing (DbMap.TraceOn)")
+	flag.StringVar(&dsn, "dsn", "gorptest:gorptest@tcp(localhost:3306)/gorptest", "Database DSN to test")
+	flag.StringVar(&dialect, "dialect", "gomysql", "Database Dialect to test")
 	flag.Parse()
+	os.Exit(m.Run())
 }
 
 type testable interface {
@@ -101,14 +106,27 @@ func (me *InvoiceTag) Rand() {
 
 // See: https://github.com/go-gorp/gorp/issues/175
 type AliasTransientField struct {
-	Id     int64  `db:"id"`
-	Bar    int64  `db:"-"`
-	BarStr string `db:"bar"`
+	Id  int64 `db:"id"`
+	Bar int64 `db:"-"`
+	// In MM hyphen tags are not discarded so we are not able
+	// to have one column with a name and another field aliasing
+	// using the same column name than before. Eg.
+	// Bar    int64  `db:"-"`
+	// BarStr string `db:"bar"`
+	BarStr string `db:"strbar"`
 }
 
 func (me *AliasTransientField) GetId() int64 { return me.Id }
 func (me *AliasTransientField) Rand() {
 	me.BarStr = fmt.Sprintf("random %d", rand.Int63())
+}
+
+type HyphenatedTable struct {
+	Id          int64
+	Description string
+	Foo         string `db:"-"`
+	Bar         int64  `db:"-"`
+	Tar         bool   `db:"-"`
 }
 
 type OverriddenInvoice struct {
@@ -785,7 +803,12 @@ func TestUIntPrimaryKey(t *testing.T) {
 
 func TestSetUniqueTogether(t *testing.T) {
 	dbmap := newDbMap()
-	dbmap.AddTable(UniqueColumns{}).SetUniqueTogether("FirstName", "LastName").SetUniqueTogether("City", "ZipCode")
+	table := dbmap.AddTable(UniqueColumns{})
+	table.ColMap("FirstName").SetMaxSize(255)
+	table.ColMap("LastName").SetMaxSize(255)
+	table.ColMap("City").SetMaxSize(100)
+	table.ColMap("ZipCode").SetMaxSize(20)
+	table.SetUniqueTogether("FirstName", "LastName").SetUniqueTogether("City", "ZipCode")
 	err := dbmap.CreateTablesIfNotExists()
 	if err != nil {
 		panic(err)
@@ -832,7 +855,10 @@ func TestSetUniqueTogether(t *testing.T) {
 
 func TestSetUniqueTogetherIdempotent(t *testing.T) {
 	dbmap := newDbMap()
-	table := dbmap.AddTable(UniqueColumns{}).SetUniqueTogether("FirstName", "LastName")
+	table := dbmap.AddTableWithName(UniqueColumns{}, "test_table")
+	table.ColMap("FirstName").SetMaxSize(255)
+	table.ColMap("LastName").SetMaxSize(255)
+	table.SetUniqueTogether("FirstName", "LastName")
 	table.SetUniqueTogether("FirstName", "LastName")
 	err := dbmap.CreateTablesIfNotExists()
 	if err != nil {
@@ -1517,18 +1543,18 @@ func TestCrud(t *testing.T) {
 func testCrudInternal(t *testing.T, dbmap *gorp.DbMap, val testable) {
 	table, err := dbmap.TableFor(reflect.TypeOf(val).Elem(), false)
 	if err != nil {
-		t.Errorf("couldn't call TableFor: val=%v err=%v", val, err)
+		t.Errorf("couldn't call TableFor: val=%v err=%v table=%s", val, err, table.TableName)
 	}
 
 	_, err = dbmap.Exec("delete from " + table.TableName)
 	if err != nil {
-		t.Errorf("couldn't delete rows from: val=%v err=%v", val, err)
+		t.Errorf("couldn't delete rows from: val=%v err=%v table=%s", val, err, table.TableName)
 	}
 
 	// INSERT row
 	_insert(dbmap, val)
 	if val.GetId() == 0 {
-		t.Errorf("val.GetId() was not set on INSERT")
+		t.Errorf("val.GetId() was not set on INSERT for table %s", table.TableName)
 		return
 	}
 
@@ -1542,7 +1568,7 @@ func testCrudInternal(t *testing.T, dbmap *gorp.DbMap, val testable) {
 	val.Rand()
 	count := _update(dbmap, val)
 	if count != 1 {
-		t.Errorf("update 1 != %d", count)
+		t.Errorf("update 1 != %d on table %s", count, table.TableName)
 	}
 	val2 = _get(dbmap, val, val.GetId())
 	if !reflect.DeepEqual(val, val2) {
@@ -1556,20 +1582,20 @@ func testCrudInternal(t *testing.T, dbmap *gorp.DbMap, val testable) {
 	} else if len(rows) != 1 {
 		t.Errorf("unexpected row count in %s: %d", dbmap.Dialect.QuoteField(table.TableName), len(rows))
 	} else if !reflect.DeepEqual(val, rows[0]) {
-		t.Errorf("select * result: %v != %v", val, rows[0])
+		t.Errorf("select * from %s result: %v != %v", table.TableName, val, rows[0])
 	}
 
 	// DELETE row
 	deleted := _del(dbmap, val)
 	if deleted != 1 {
-		t.Errorf("Did not delete row with Id: %d", val.GetId())
+		t.Errorf("Did not delete row with Id: %d for table %s", val.GetId(), table.TableName)
 		return
 	}
 
 	// VERIFY deleted
 	val2 = _get(dbmap, val, val.GetId())
 	if val2 != nil {
-		t.Errorf("Found invoice with id: %d after Delete()", val.GetId())
+		t.Errorf("Found invoice with id: %d after Delete() for table %s", val.GetId(), table.TableName)
 	}
 }
 
@@ -1928,6 +1954,9 @@ func TestNullTime(t *testing.T) {
 
 	// if time is not null
 	ts, err := time.Parse(time.Stamp, "Jan 2 15:04:05")
+	if err != nil {
+		t.Errorf("failed to parse time %s: %s", time.Stamp, err.Error())
+	}
 	ent = &WithNullTime{
 		Id: 1,
 		Time: gorp.NullTime{
@@ -1950,8 +1979,6 @@ func TestNullTime(t *testing.T) {
 	if ent.Time.Time.UTC() != ts.UTC() {
 		t.Errorf("expect %v but got %v.", ts, ent.Time.Time)
 	}
-
-	return
 }
 
 type WithTime struct {
@@ -2105,6 +2132,7 @@ func TestQuoteTableNames(t *testing.T) {
 }
 
 func TestSelectTooManyCols(t *testing.T) {
+	t.Skip("We are not returning non-fatal errors since https://github.com/mattermost/gorp/commit/264455541e08d3b5ec89f605e9695823d5bec606")
 	dbmap := initDbMap()
 	defer dropAndClose(dbmap)
 
@@ -2282,7 +2310,7 @@ func TestSelectAlias(t *testing.T) {
 func TestMysqlPanicIfDialectNotInitialized(t *testing.T) {
 	_, driver := dialectAndDriver()
 	// this test only applies to MySQL
-	if os.Getenv("GORP_TEST_DIALECT") != "mysql" {
+	if dialect != "mysql" {
 		return
 	}
 
@@ -2306,7 +2334,9 @@ func TestMysqlPanicIfDialectNotInitialized(t *testing.T) {
 func TestSingleColumnKeyDbReturnsZeroRowsUpdatedOnPKChange(t *testing.T) {
 	dbmap := initDbMap()
 	defer dropAndClose(dbmap)
-	dbmap.AddTableWithName(SingleColumnTable{}, "single_column_table").SetKeys(false, "SomeId")
+	table := dbmap.AddTableWithName(SingleColumnTable{}, "single_column_table")
+	table.ColMap("SomeId").SetMaxSize(255)
+	table.SetKeys(false, "SomeId")
 	err := dbmap.DropTablesIfExists()
 	if err != nil {
 		t.Error("Drop tables failed")
@@ -2389,6 +2419,43 @@ func TestPrepare(t *testing.T) {
 	}
 }
 
+func TestHyphenColumns(t *testing.T) {
+	dbmap := initDbMap()
+	defer dropAndClose(dbmap)
+
+	data := &HyphenatedTable{Description: "Description"}
+	_insert(dbmap, data)
+
+	returnedData := &HyphenatedTable{}
+	rows, err := dbmap.Select(returnedData,
+		"SELECT Id, Description, 12345 as Bar, TRUE as Tar FROM "+tableName(dbmap, HyphenatedTable{}))
+	if err != nil {
+		t.Error(err)
+	}
+	if len(rows) == 0 {
+		t.Error("Number of rows should be 1")
+	}
+	data = rows[0].(*HyphenatedTable)
+	if data.Foo != "" || data.Bar != 12345 || !data.Tar {
+		t.Errorf("Hyphenated values are not being stored: %v", data)
+	}
+
+	data = &HyphenatedTable{Description: "Description", Foo: "Shouldn't be inserted", Bar: 1234, Tar: true}
+	_update(dbmap, data)
+	rows, err = dbmap.Select(returnedData,
+		"SELECT * FROM "+tableName(dbmap, HyphenatedTable{}))
+	if err != nil {
+		t.Error(err)
+	}
+	if len(rows) == 0 {
+		t.Error("Number of rows should be 1")
+	}
+	data = rows[0].(*HyphenatedTable)
+	if data.Foo != "" || data.Bar != 0 || data.Tar {
+		t.Errorf("Shouldn't be able to store hyphen column data: %v", data)
+	}
+}
+
 func BenchmarkNativeCrud(b *testing.B) {
 	b.StopTimer()
 	dbmap := initDbMapBench()
@@ -2401,7 +2468,7 @@ func BenchmarkNativeCrud(b *testing.B) {
 	b.StartTimer()
 
 	var insert, sel, update, delete string
-	if os.Getenv("GORP_TEST_DIALECT") != "postgres" {
+	if dialect != "postgres" {
 		insert = "insert into invoice_test (" + columnCreated + ", " + columnUpdated + ", " + columnMemo + ", " + columnPersonId + ") values (?, ?, ?, ?)"
 		sel = "select " + columnId + ", " + columnCreated + ", " + columnUpdated + ", " + columnMemo + ", " + columnPersonId + " from invoice_test where " + columnId + "=?"
 		update = "update invoice_test set " + columnCreated + "=?, " + columnUpdated + "=?, " + columnMemo + "=?, " + columnPersonId + "=? where " + columnId + "=?"
@@ -2510,17 +2577,22 @@ func initDbMap() *gorp.DbMap {
 	dbmap.AddTableWithName(Invoice{}, "invoice_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(InvoiceTag{}, "invoice_tag_test") //key is set via primarykey attribute
 	dbmap.AddTableWithName(AliasTransientField{}, "alias_trans_field_test").SetKeys(true, "id")
-	dbmap.AddTableWithName(OverriddenInvoice{}, "invoice_override_test").SetKeys(false, "Id")
+	dbmap.AddTableWithName(HyphenatedTable{}, "hyphenated_table").SetKeys(true, "Id")
+	table := dbmap.AddTableWithName(OverriddenInvoice{}, "invoice_override_test").SetKeys(false, "Id")
+	table.ColMap("Id").SetMaxSize(255)
+	table.SetKeys(false, "Id")
 	dbmap.AddTableWithName(Person{}, "person_test").SetKeys(true, "Id").SetVersionCol("Version")
 	dbmap.AddTableWithName(WithIgnoredColumn{}, "ignored_column_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(IdCreated{}, "id_created_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(TypeConversionExample{}, "type_conv_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(WithEmbeddedStruct{}, "embedded_struct_test").SetKeys(true, "Id")
-	//dbmap.AddTableWithName(WithEmbeddedStructConflictingEmbeddedMemberNames{}, "embedded_struct_conflict_name_test").SetKeys(true, "Id")
-	//dbmap.AddTableWithName(WithEmbeddedStructSameMemberName{}, "embedded_struct_same_member_name_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(WithEmbeddedStructBeforeAutoincrField{}, "embedded_struct_before_autoincr_test").SetKeys(true, "Id")
-	dbmap.AddTableDynamic(&dynTableInst1, "").SetKeys(true, "Id").AddIndex("TenantInst1Index", "Btree", []string{"Name"}).SetUnique(true)
-	dbmap.AddTableDynamic(&dynTableInst2, "").SetKeys(true, "Id").AddIndex("TenantInst2Index", "Btree", []string{"Name"}).SetUnique(true)
+	tableDyn1 := dbmap.AddTableDynamic(&dynTableInst1, "")
+	tableDyn1.ColMap("Name").SetMaxSize(255)
+	tableDyn1.SetKeys(true, "Id").AddIndex("TenantInst1Index", "Btree", []string{"Name"}).SetUnique(true)
+	tableDyn2 := dbmap.AddTableDynamic(&dynTableInst2, "")
+	tableDyn2.ColMap("Name").SetMaxSize(255)
+	tableDyn2.SetKeys(true, "Id").AddIndex("TenantInst2Index", "Btree", []string{"Name"}).SetUnique(true)
 	dbmap.AddTableWithName(WithEmbeddedAutoincr{}, "embedded_autoincr_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(WithTime{}, "time_test").SetKeys(true, "Id")
 	dbmap.AddTableWithName(WithNullTime{}, "nulltime_test").SetKeys(false, "Id")
@@ -2571,11 +2643,6 @@ func dropAndClose(dbmap *gorp.DbMap) {
 }
 
 func connect(driver string) *sql.DB {
-	dsn := os.Getenv("GORP_TEST_DSN")
-	if dsn == "" {
-		panic("GORP_TEST_DSN env variable is not set. Please see README.md")
-	}
-
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		panic("Error connecting to db: " + err.Error())
@@ -2584,7 +2651,7 @@ func connect(driver string) *sql.DB {
 }
 
 func dialectAndDriver() (gorp.Dialect, string) {
-	switch os.Getenv("GORP_TEST_DIALECT") {
+	switch dialect {
 	case "mysql":
 		return gorp.MySQLDialect{"InnoDB", "UTF8"}, "mymysql"
 	case "gomysql":
@@ -2593,8 +2660,9 @@ func dialectAndDriver() (gorp.Dialect, string) {
 		return gorp.PostgresDialect{}, "postgres"
 	case "sqlite":
 		return gorp.SqliteDialect{}, "sqlite3"
+	default:
+		panic("Dialect variable  is not set or is invalid. Please see README.md")
 	}
-	panic("GORP_TEST_DIALECT env variable is not set or is invalid. Please see README.md")
 }
 
 func _insert(dbmap *gorp.DbMap, list ...interface{}) {

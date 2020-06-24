@@ -1,0 +1,28 @@
+version: 2.1
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.14.4
+      - image: circleci/postgres:9.4.26-ram
+        environment:
+          POSTGRES_DB: gorptest
+          POSTGRES_USER: gorptest
+          POSTGRES_PASSWORD: gorptest
+      - image: circleci/mysql:5.7.30-ram
+        environment:
+          MYSQL_DATABASE: gorptest
+          MYSQL_USER: gorptest
+          MYSQL_PASSWORD: gorptest
+    steps:
+      - checkout
+      - run:
+          name: Run Tests
+          command: |
+            go get -u github.com/onsi/ginkgo/ginkgo
+            make test-all
+          no_output_timeout: 10m
+workflows:
+  version: 2.1
+  untagged-build:
+    jobs:
+      - build
