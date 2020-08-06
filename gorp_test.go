@@ -72,6 +72,12 @@ type Invoice struct {
 	IsPaid   bool
 }
 
+type InvoiceWithMemoDefault struct {
+	Id              int64
+	Memo            string
+	MemoWithDefault string
+}
+
 type InvoiceWithValuer struct {
 	Id      int64
 	Created int64
@@ -1325,6 +1331,10 @@ func TestColumnProps(t *testing.T) {
 	t1.ColMap("Memo").SetMaxSize(10)
 	t1.ColMap("PersonId").SetUnique(true)
 
+	t2 := dbmap.AddTable(InvoiceWithMemoDefault{}).SetKeys(true, "Id")
+	t2.ColMap("Memo").SetMaxSize(10)
+	t2.ColMap("MemoWithDefault").SetMaxSize(60).SetDefaultConstraint(NewString("default"))
+
 	err := dbmap.CreateTables()
 	if err != nil {
 		panic(err)
@@ -1352,6 +1362,16 @@ func TestColumnProps(t *testing.T) {
 	err = dbmap.Insert(inv)
 	if err == nil {
 		t.Errorf("same PersonId inserted, but Insert did not fail.")
+	}
+
+	// test default
+	rawExec(dbmap, "insert into "+tableName(dbmap, InvoiceWithMemoDefault{})+
+		" (Id, Memo) values (1, 'my memo');")
+
+	obj2 := _get(dbmap, InvoiceWithMemoDefault{}, 1)
+	inv2 := obj2.(*InvoiceWithMemoDefault)
+	if inv2.MemoWithDefault != "default" {
+		t.Errorf("db did not create a default value for 'MemoWithDefault'")
 	}
 }
 
@@ -2791,3 +2811,5 @@ func columnName(dbmap *gorp.DbMap, i interface{}, fieldName string) string {
 	}
 	return fieldName
 }
+
+func NewString(s string) *string { return &s }
