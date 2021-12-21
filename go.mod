@@ -1,4 +1,4 @@
-module github.com/mattermost/gorp
+module github.com/simtropolis/gorp
 
 go 1.13
 

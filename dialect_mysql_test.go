@@ -21,7 +21,7 @@ import (
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 
-	"github.com/mattermost/gorp"
+	"github.com/simtropolis/gorp"
 )
 
 var _ = Describe("MySQLDialect", func() {

@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mattermost/gorp"
+	"github.com/simtropolis/gorp"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -2152,7 +2152,7 @@ func TestQuoteTableNames(t *testing.T) {
 }
 
 func TestSelectTooManyCols(t *testing.T) {
-	t.Skip("We are not returning non-fatal errors since https://github.com/mattermost/gorp/commit/264455541e08d3b5ec89f605e9695823d5bec606")
+	t.Skip("We are not returning non-fatal errors")
 	dbmap := initDbMap()
 	defer dropAndClose(dbmap)
 
